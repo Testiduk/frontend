@@ -2,6 +2,7 @@ package common
 
 import java.io.StringWriter
 import java.util.regex.Pattern
+
 import com.gu.facia.api.models.LinkSnap
 import com.sun.syndication.feed.module.DCModuleImpl
 import com.sun.syndication.feed.module.mediarss._
@@ -57,7 +58,9 @@ object TrailsToRss extends implicits.Collections {
 
   def apply(title: Option[String], trails: Seq[Trail], url: Option[String] = None, description: Option[String] = None)(
       implicit request: RequestHeader,
-  ): String = {
+  ): String = asString(syndFeedOf(title, trails, url, description))
+
+  def syndFeedOf(title: Option[String], trails: Seq[Trail], url: Option[String], description: Option[String]): SyndFeed = {
     val feedTitle = title.map(t => s"$t | The Guardian").getOrElse("The Guardian")
 
     // Feed
@@ -78,68 +81,74 @@ object TrailsToRss extends implicits.Collections {
     feed.setEncoding("utf-8")
 
     // Feed: entries
-    val entries = trails.map { trail =>
-      // Entry: categories
-      val categories = trail.tags.keywords.map { tag =>
-        val category = new SyndCategoryImpl
-        category.setName(tag.name)
-        category.setTaxonomyUri(tag.metadata.webUrl)
-        category
-      }.asJava
-
-      // Entry: description
-      val description = new SyndContentImpl
-      val standfirst = trail.fields.standfirst.getOrElse("")
-      val intro = Jsoup.parseBodyFragment(trail.fields.body).select("p:lt(2)").toArray.map(_.toString).mkString("")
-      val readMore = s""" <a href="${trail.metadata.webUrl}">Continue reading...</a>"""
-      description.setValue(stripInvalidXMLCharacters(standfirst + intro + readMore))
-
-      val mediaModules: Seq[MediaEntryModuleImpl] = for {
-        profile: ImageProfile <- List(Item140, Item460)
-        trailPicture: ImageMedia <- trail.trailPicture
-        trailAsset: ImageAsset <- profile.bestFor(trailPicture)
-        resizedImage <- profile.bestSrcFor(trailPicture)
-      } yield {
-        // create media
-        val media = new MediaContent(new UrlReference(resizedImage))
-        profile.width.foreach(media.setWidth(_))
-        profile.height.foreach(media.setHeight(_))
-        trailAsset.mimeType.foreach(media.setType)
-        // create image's metadata
-        val imageMetadata = new Metadata()
-        trailAsset.caption.foreach({ d => imageMetadata.setDescription(stripInvalidXMLCharacters(d)) })
-        trailAsset.credit.foreach { creditName =>
-          val credit = new Credit(null, null, stripInvalidXMLCharacters(creditName))
-          imageMetadata.setCredits(Seq(credit).toArray)
-        }
-        media.setMetadata(imageMetadata)
-        // create image module
-        val module = new MediaEntryModuleImpl()
-        module.setMediaContents(Seq(media).toArray)
-        module
-      }
-
-      // Entry: DublinCore
-      val dc = new DCModuleImpl
-      dc.setDate(trail.webPublicationDate.toDate)
-      dc.setCreator(trail.byline.getOrElse("Guardian Staff"))
-
-      // Entry
-      val entry = new SyndEntryImpl
-      entry.setTitle(stripInvalidXMLCharacters(trail.fields.linkText))
-      entry.setLink(trail.metadata.webUrl)
-      /* set http intentionally to not break existing guid */
-      entry.setUri("http://www.theguardian.com/" + trail.metadata.id)
-
-      entry.setDescription(description)
-      entry.setCategories(categories)
-      entry.setModules(new java.util.ArrayList((mediaModules ++ Seq(dc)).asJava))
-      entry
-
+    val entries = trails.map {
+      asEntry
     }.asJava
 
     feed.setEntries(entries)
+    feed
+  }
 
+  def asEntry(trail: Trail): SyndEntryImpl = {
+    // Entry: categories
+    val categories = trail.tags.keywords.map { tag =>
+      val category = new SyndCategoryImpl
+      category.setName(tag.name)
+      category.setTaxonomyUri(tag.metadata.webUrl)
+      category
+    }.asJava
+
+    // Entry: description
+    val description = new SyndContentImpl
+    val standfirst = trail.fields.standfirst.getOrElse("")
+    val intro = Jsoup.parseBodyFragment(trail.fields.body).select("p:lt(2)").toArray.map(_.toString).mkString("")
+    val readMore = s""" <a href="${trail.metadata.webUrl}">Continue reading...</a>"""
+    description.setValue(stripInvalidXMLCharacters(standfirst + intro + readMore))
+
+    val mediaModules: Seq[MediaEntryModuleImpl] = for {
+      profile: ImageProfile <- List(Item140, Item460)
+      trailPicture: ImageMedia <- trail.trailPicture
+      trailAsset: ImageAsset <- profile.bestFor(trailPicture)
+      resizedImage <- profile.bestSrcFor(trailPicture)
+    } yield {
+      // create media
+      val media = new MediaContent(new UrlReference(resizedImage))
+      profile.width.foreach(media.setWidth(_))
+      profile.height.foreach(media.setHeight(_))
+      trailAsset.mimeType.foreach(media.setType)
+      // create image's metadata
+      val imageMetadata = new Metadata()
+      trailAsset.caption.foreach({ d => imageMetadata.setDescription(stripInvalidXMLCharacters(d)) })
+      trailAsset.credit.foreach { creditName =>
+        val credit = new Credit(null, null, stripInvalidXMLCharacters(creditName))
+        imageMetadata.setCredits(Seq(credit).toArray)
+      }
+      media.setMetadata(imageMetadata)
+      // create image module
+      val module = new MediaEntryModuleImpl()
+      module.setMediaContents(Seq(media).toArray)
+      module
+    }
+
+    // Entry: DublinCore
+    val dc = new DCModuleImpl
+    dc.setDate(trail.webPublicationDate.toDate)
+    dc.setCreator(trail.byline.getOrElse("Guardian Staff"))
+
+    // Entry
+    val entry = new SyndEntryImpl
+    entry.setTitle(stripInvalidXMLCharacters(trail.fields.linkText))
+    entry.setLink(trail.metadata.webUrl)
+    /* set http intentionally to not break existing guid */
+    entry.setUri("http://www.theguardian.com/" + trail.metadata.id)
+
+    entry.setDescription(description)
+    entry.setCategories(categories)
+    entry.setModules(new util.ArrayList((mediaModules ++ Seq(dc)).asJava))
+    entry
+  }
+
+  def asString(feed: SyndFeed) = {
     val writer = new StringWriter()
     val output = new SyndFeedOutput()
     output.output(feed, writer)

@@ -14,7 +14,7 @@ import model.Trail
 import scala.util.Try
 import scala.xml._
 
-class TrailsToRssTest extends FlatSpec with Matchers with GuiceOneAppPerSuite {
+class TrailsToRssTest extends FlatSpec with Matchers with GuiceOneAppPerSuite with TestTrails {
 
   val request = FakeRequest()
   lazy val trails = Seq(testTrail("a"), testTrail("b"))
@@ -70,23 +70,5 @@ class TrailsToRssTest extends FlatSpec with Matchers with GuiceOneAppPerSuite {
     Try {
       scala.xml.XML.loadString(s)
     }.isSuccess
-
-  def testTrail(url: String, customTitle: Option[String] = None): Trail = {
-
-    val offsetDate = jodaToJavaInstant(new DateTime()).atOffset(ZoneOffset.UTC)
-
-    val contentItem = ApiContent(
-      id = url,
-      sectionId = None,
-      sectionName = None,
-      webUrl = "",
-      apiUrl = "",
-      webPublicationDate = Some(offsetDate.toCapiDateTime),
-      elements = None,
-      webTitle = customTitle getOrElse "hello …",
-      fields = Some(ContentFields(liveBloggingNow = Some(true), byline = Some("Chadders"))),
-    )
-    model.Content(contentItem).trail
-  }
 
 }
